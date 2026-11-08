@@ -1,0 +1,8 @@
+// Cloudflare deploy config: serves the static site in ./public
+{
+  "name": "scribble-squad",
+  "compatibility_date": "2026-09-01",
+  "assets": {
+    "directory": "./public"
+  }
+}
