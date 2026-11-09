@@ -196,7 +196,7 @@ input:focus, select:focus { border-color: var(--bg1); }
 .size.on, .tool.on { background: var(--primary); }
 
 /* chat */
-.chat-col { display: flex; flex-direction: column; min-height: 0; }
+.chat-col { display: flex; flex-direction: column; min-height: 0; contain: size; } /* size comes from the board, so messages scroll instead of growing the box */
 .chat { flex: 1; overflow-y: auto; padding: 10px; display: flex; flex-direction: column; gap: 3px; min-height: 0; font-size: .95rem; }
 .chat .m { padding: 2px 8px; border-radius: 8px; word-wrap: break-word; animation: fade .2s; }
 .chat .m b { margin-right: 4px; }
