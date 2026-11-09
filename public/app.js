@@ -254,7 +254,7 @@
         if (p.to === playerId && joinWaiter) joinWaiter({ error: p.error });
         break;
       case 'cur':
-        if (from !== playerId) moveCursor(from, p.x, p.y);
+        if (from !== playerId && state && from === state.drawerId && state.phase === 'drawing') moveCursor(from, p.x, p.y);
         break;
     }
   }
@@ -492,6 +492,7 @@
 
     $('tools').classList.toggle('hidden', !isDrawer());
     $('canvasWrap').classList.toggle('locked', !isDrawer());
+    hideOtherCursors();
 
     const gi = $('guessInput');
     if (isDrawer()) gi.placeholder = "You're drawing! Chat only reaches people who guessed.";
@@ -877,12 +878,17 @@
   canvas.addEventListener('pointercancel', stop);
 
   // ---------- live cursors ----------
-  // Mouse users share where their pointer is over the board; everyone sees it with their avatar.
+  // Only the drawer's mouse is shared: guessers see it move over the board with the drawer's avatar.
   // Updates are throttled (~7 per second) and smoothed with CSS, to stay inside Supabase's free limits.
   const cursors = new Map(); // playerId -> { el, timer }
   const wrap = $('canvasWrap');
 
   const cursorFace = (p) => avatarNode(p, 'cur-av');
+
+  function hideOtherCursors() {
+    const live = state && state.phase === 'drawing' ? state.drawerId : null;
+    cursors.forEach((c, id) => { if (id !== live) c.el.classList.remove('show'); });
+  }
 
   function moveCursor(id, x, y) {
     if (!state) return;
@@ -913,12 +919,12 @@
   let curPending = null;
   let curSent = null;
   wrap.addEventListener('pointermove', (e) => {
-    if (e.pointerType !== 'mouse' || !channel || !state || state.phase === 'lobby') return;
+    if (e.pointerType !== 'mouse' || !channel || !isDrawer()) return;
     const r = wrap.getBoundingClientRect();
     curPending = { x: +((e.clientX - r.left) / r.width).toFixed(3), y: +((e.clientY - r.top) / r.height).toFixed(3) };
   });
   wrap.addEventListener('pointerleave', (e) => {
-    if (e.pointerType === 'mouse') curPending = { x: -1, y: -1 };
+    if (e.pointerType === 'mouse' && isDrawer()) curPending = { x: -1, y: -1 };
   });
   setInterval(() => {
     if (!curPending || (curSent && curPending.x === curSent.x && curPending.y === curSent.y)) return;
