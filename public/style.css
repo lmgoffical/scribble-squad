@@ -127,7 +127,9 @@ input:focus, select:focus { border-color: var(--bg1); }
 #gamePlayers .rk { font-weight: 800; color: var(--muted); width: 22px; }
 #gamePlayers .pen { margin-left: auto; font-size: 1.2rem; }
 .kick { margin-left: auto; flex: 0 0 auto; width: 26px; height: 26px; border: 0; border-radius: 50%; background: transparent; color: var(--muted); font: inherit; font-size: .85rem; cursor: pointer; opacity: .55; transition: opacity .15s, background .15s, color .15s; }
-.pen + .kick, .badge ~ .kick { margin-left: 0; }
+.pen + .kick, .badge ~ .kick, .kick + .kick { margin-left: 0; }
+.kick.crown:hover { background: #fff3c4; }
+.kick:disabled { opacity: .2; cursor: default; background: transparent; }
 li:hover > .kick, .kick:focus-visible { opacity: 1; }
 .kick:hover { background: #ffe3e3; color: #d6336c; }
 @media (hover: none) { .kick { opacity: 1; } }

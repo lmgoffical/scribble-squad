@@ -29,7 +29,7 @@
     realtime: { params: { eventsPerSecond: 30 } },
   });
 
-  const EVENTS = ['hello', 'act', 'state', 'secret', 'chat', 'sync', 'draw', 'reject', 'cur'];
+  const EVENTS = ['hello', 'act', 'state', 'secret', 'chat', 'sync', 'draw', 'reject', 'cur', 'handoff'];
   let channel = null;
   let engine = null; // only set on the host's browser
   let state = null;
@@ -41,6 +41,7 @@
   let qrFor = null;
   let joinWaiter = null;
   let takeoverTimer = null;
+  let handoffTimer = null;
   let localOps = [];
   let lastTurnId = null;
   let account = { user: null, profile: null, pv: 0 }; // signed-in account, if any
@@ -127,6 +128,7 @@
     engine?.destroy();
     engine = null;
     clearTimeout(takeoverTimer);
+    clearTimeout(handoffTimer);
     if (channel) {
       const ch = channel;
       channel = null;
@@ -142,7 +144,26 @@
     if (prior) engine.adopt(prior);
     const h = helloPayload();
     engine.hello(playerId, h.name, h.uid, h.pv);
+    if (prior?.handoff) engine.chat({ kind: 'good', text: `👑 ${h.name} is the host now.` });
     onPresence();
+  }
+
+  // The host hands the game to someone else: their browser starts running it from our latest state.
+  function giveHost(p) {
+    if (!engine || !state || p.id === playerId) return;
+    const snapshot = { ...engine.publicState(), handoff: true };
+    engine.destroy();
+    engine = null;
+    store.del('ss-state', session);
+    send('handoff', { to: p.id, prior: snapshot });
+    // If they never pick it up (closed the tab just now), take the game back.
+    clearTimeout(handoffTimer);
+    handoffTimer = setTimeout(() => {
+      if (channel && state && state.hostId === playerId && !engine) {
+        becomeHost(snapshot);
+        toast(`${p.name} didn't pick it up, so you're still the host.`);
+      }
+    }, 5000);
   }
 
   function makeCode() {
@@ -254,6 +275,11 @@
         if (p.to !== playerId) return;
         if (joinWaiter) joinWaiter({ error: p.error });
         else if (p.kicked && currentCode) leaveRoom(p.error);
+        break;
+      case 'handoff':
+        if (p.to !== playerId || !state || from !== state.hostId || engine || !p.prior) return;
+        becomeHost({ ...p.prior, hostId: playerId, handoff: true });
+        toast("You're the host now 👑");
         break;
       case 'cur':
         if (from !== playerId && state && from === state.drawerId && state.phase === 'drawing') moveCursor(from, p.x, p.y);
@@ -384,9 +410,22 @@
     $('homeError').textContent = kickedMsg || '';
   }
 
-  // Hosts get a ✕ next to everyone else so they can remove them.
+  // Hosts get 👑 (make host) and ✕ (kick) next to everyone else.
+  function hostBtns(p) {
+    if (!isHost() || p.id === playerId) return [];
+    const crown = el('button', 'kick crown', '👑');
+    crown.title = `Make ${p.name} the host`;
+    crown.setAttribute('aria-label', crown.title);
+    crown.disabled = !p.online;
+    crown.onclick = (e) => {
+      e.stopPropagation();
+      const mid = state.phase !== 'lobby' && state.phase !== 'gameOver';
+      if (confirm(`Make ${p.name} the host?${mid ? ' The current turn will be skipped.' : ''}`)) giveHost(p);
+    };
+    return [crown, kickBtn(p)];
+  }
+
   function kickBtn(p) {
-    if (!isHost() || p.id === playerId) return null;
     const b = el('button', 'kick', '✕');
     b.title = `Kick ${p.name}`;
     b.setAttribute('aria-label', `Kick ${p.name}`);
@@ -455,8 +494,7 @@
         li.append(avatarNode(p), el('span', null, p.name));
         if (p.id === state.hostId) li.append(el('span', 'badge', 'host'));
         if (p.id === playerId) li.append(el('span', 'badge you', 'you'));
-        const k = kickBtn(p);
-        if (k) li.append(k);
+        li.append(...hostBtns(p));
         return li;
       })
     );
@@ -507,8 +545,7 @@
         info.append(el('span', 'nm', p.name + (p.id === playerId ? ' (you)' : '')), el('span', 'sc', `${p.score} pts`));
         li.append(info);
         if (p.id === state.drawerId && state.phase !== 'gameOver') li.append(el('span', 'pen', '✏️'));
-        const k = kickBtn(p);
-        if (k) li.append(k);
+        li.append(...hostBtns(p));
         return li;
       })
     );

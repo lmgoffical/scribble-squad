@@ -73,7 +73,7 @@
         this.leaderboard = s.leaderboard || null;
         this.broadcast();
       } else {
-        this.chat({ kind: 'info', text: 'The host reconnected, so this turn was skipped.' });
+        this.chat({ kind: 'info', text: s.handoff ? 'The host changed, so this turn was skipped.' : 'The host reconnected, so this turn was skipped.' });
         // Show the turn-over screen briefly so everyone has time to reconnect.
         this.phase = 'turnEnd';
         this.lastWord = '…';
