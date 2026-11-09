@@ -11,6 +11,7 @@ A multiplayer draw-and-guess party game that runs in the browser, with nothing t
 - **Spoiler-proof chat:** once you guess right, your messages only go to others who already got it
 - **Drawing tools:** 20 colors, 4 brush sizes, fill bucket, eraser, undo (Ctrl+Z) and clear
 - **End-of-game leaderboard:** podium for the top 3 plus everyone else's rank, with confetti 🎉
+- **Host kick:** the host can remove anyone from the lobby or mid-game, and they can't rejoin that game
 - **Live drawer cursor:** guessers see the drawer's mouse moving over the board, with their avatar
 - **Accounts (optional):** sign up with email and draw your own little avatar; guests get an emoji
 - Works on phones, and refreshing the page drops you back into your game

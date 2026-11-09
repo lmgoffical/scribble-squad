@@ -54,6 +54,7 @@
       this.lastWord = null;
       this.leaderboard = null;
       this.lastGuess = new Map();
+      this.banned = new Set(); // player ids (and account ids) the host kicked
     }
 
     // ---------- taking over from a host who left ----------
@@ -62,6 +63,7 @@
       this.round = s.round || 0;
       this.queue = Array.isArray(s.queue) ? [...s.queue] : [];
       this.turnId = (s.turnId || 0) + 1;
+      for (const b of s.banned || []) this.banned.add(b);
       for (const p of s.players || []) {
         this.players.set(p.id, { id: p.id, name: p.name, avatar: p.avatar, uid: p.uid || null, pv: p.pv || 0, score: p.score || 0 });
         if (p.online) this.online.add(p.id); // assume they're still here; presence corrects it after the grace period
@@ -129,6 +131,7 @@
         wordLength: this.word ? this.word.length : 0,
         endsAt: this.endsAt,
         hostNow: Date.now(),
+        banned: [...this.banned],
         lastWord: this.phase === 'turnEnd' ? this.lastWord : null,
         turnPoints: this.phase === 'turnEnd' ? this.turnPoints : null,
         leaderboard: this.phase === 'gameOver' ? this.leaderboard : null,
@@ -165,6 +168,9 @@
       if (!name || !/^[a-zA-Z0-9_-]{8,40}$/.test(id)) return;
       const acct = typeof uid === 'string' && /^[0-9a-f-]{36}$/i.test(uid) ? uid : null;
       const ver = acct && Number.isFinite(pv) ? pv : 0;
+      if (this.banned.has(id) || (acct && this.banned.has(acct))) {
+        return this.send('reject', { to: id, kicked: true, error: 'The host removed you from this game.' });
+      }
       let p = this.players.get(id);
       if (!p) {
         if (this.players.size >= MAX_PLAYERS) return this.send('reject', { to: id, error: 'That game is full (16 players).' });
@@ -267,7 +273,29 @@
         case 'leave':
           this.online.delete(from);
           return this.onLeave(from);
+        case 'kick':
+          if (!isHost || data === this.hostId || !this.players.has(data)) return;
+          return this.kick(data);
       }
+    }
+
+    // The host removes someone: they're dropped from the game and can't rejoin it.
+    kick(id) {
+      const p = this.players.get(id);
+      this.banned.add(id);
+      if (p.uid) this.banned.add(p.uid);
+      this.players.delete(id);
+      this.online.delete(id);
+      this.guessed.delete(id);
+      this.queue = this.queue.filter((q) => q !== id);
+      this.send('reject', { to: id, kicked: true, error: 'The host removed you from this game.' });
+      this.chat({ kind: 'info', text: `${p.name} was kicked by the host.` });
+      if (this.phase !== 'lobby' && this.phase !== 'gameOver') {
+        if (this.connected().length < 2) return this.endGame('Not enough players left.');
+        if (this.drawerId === id) return this.phase === 'choosing' ? this.nextTurn() : this.endTurn('kicked');
+        if (this.phase === 'drawing' && this.everyoneGuessed()) return this.endTurn('all');
+      }
+      this.broadcast();
     }
 
     // Drawing ops are broadcast by the drawer directly; the host just keeps a copy for late joiners.
@@ -363,6 +391,7 @@
       this.endsAt = Date.now() + TURN_END_TIME * 1000;
       if (reason === 'time') this.chat({ kind: 'info', text: `⏰ Time! The word was "${this.lastWord}".` });
       else if (reason === 'all') this.chat({ kind: 'good', text: `🎉 Everyone got it! The word was "${this.lastWord}".` });
+      else if (reason === 'kicked') this.chat({ kind: 'info', text: `The drawer was kicked. The word was "${this.lastWord}".` });
       else if (reason === 'left') this.chat({ kind: 'info', text: `The drawer left. The word was "${this.lastWord}".` });
       this.later(TURN_END_TIME, () => this.nextTurn());
       this.broadcast();

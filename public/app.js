@@ -251,7 +251,9 @@
         for (const op of p.ops) applyRemote(op);
         break;
       case 'reject':
-        if (p.to === playerId && joinWaiter) joinWaiter({ error: p.error });
+        if (p.to !== playerId) return;
+        if (joinWaiter) joinWaiter({ error: p.error });
+        else if (p.kicked && currentCode) leaveRoom(p.error);
         break;
       case 'cur':
         if (from !== playerId && state && from === state.drawerId && state.phase === 'drawing') moveCursor(from, p.x, p.y);
@@ -359,11 +361,14 @@
   $('roundsSel').onchange = $('timeSel').onchange = () =>
     act('settings', { rounds: +$('roundsSel').value, drawTime: +$('timeSel').value });
   $('startBtn').onclick = () => act('start');
-  $('leaveBtn').onclick = leaveRoom;
+  $('leaveBtn').onclick = () => leaveRoom();
 
-  async function leaveRoom() {
-    act('leave');
-    await new Promise((r) => setTimeout(r, 150));
+  // `kickedMsg` is set when the host removed us, so there's no goodbye to send.
+  async function leaveRoom(kickedMsg) {
+    if (!kickedMsg) {
+      act('leave');
+      await new Promise((r) => setTimeout(r, 150));
+    }
     await closeChannel();
     currentCode = null;
     state = null;
@@ -376,6 +381,20 @@
     chatTurn = -1;
     lastTurnId = null;
     show('home');
+    $('homeError').textContent = kickedMsg || '';
+  }
+
+  // Hosts get a ✕ next to everyone else so they can remove them.
+  function kickBtn(p) {
+    if (!isHost() || p.id === playerId) return null;
+    const b = el('button', 'kick', '✕');
+    b.title = `Kick ${p.name}`;
+    b.setAttribute('aria-label', `Kick ${p.name}`);
+    b.onclick = (e) => {
+      e.stopPropagation();
+      if (confirm(`Kick ${p.name} from the game? They won't be able to rejoin.`)) act('kick', p.id);
+    };
+    return b;
   }
 
   function loadQr(code) {
@@ -436,6 +455,8 @@
         li.append(avatarNode(p), el('span', null, p.name));
         if (p.id === state.hostId) li.append(el('span', 'badge', 'host'));
         if (p.id === playerId) li.append(el('span', 'badge you', 'you'));
+        const k = kickBtn(p);
+        if (k) li.append(k);
         return li;
       })
     );
@@ -486,6 +507,8 @@
         info.append(el('span', 'nm', p.name + (p.id === playerId ? ' (you)' : '')), el('span', 'sc', `${p.score} pts`));
         li.append(info);
         if (p.id === state.drawerId && state.phase !== 'gameOver') li.append(el('span', 'pen', '✏️'));
+        const k = kickBtn(p);
+        if (k) li.append(k);
         return li;
       })
     );
@@ -606,7 +629,7 @@
     }
     const leave = el('button', 'btn ghost', 'Leave');
     leave.style.color = '#fff';
-    leave.onclick = leaveRoom;
+    leave.onclick = () => leaveRoom();
     btns.append(leave);
     o.append(btns);
   }
