@@ -15,6 +15,17 @@
     <div class="home-card">
       <h1 class="logo">Scribble<span>Squad</span></h1>
       <p class="tag">Draw it. Guess it. Brag about it.</p>
+      <div class="acct">
+        <div id="acctOut">
+          <button id="openAuth" class="btn ghost">👤 Log in or make an account</button>
+        </div>
+        <div id="acctIn" class="acct-in" hidden>
+          <span id="acctPic" class="acct-pic"></span>
+          <div class="acct-who"><span class="muted small">Signed in as</span><b id="acctName"></b></div>
+          <button id="editAvatar" class="btn">🎨 Avatar</button>
+          <button id="signOut" class="btn ghost small-btn" title="Sign out">Sign out</button>
+        </div>
+      </div>
       <label class="field">
         <span>Your name</span>
         <input id="nameInput" maxlength="16" placeholder="e.g. Picasso Jr" autocomplete="off">
@@ -104,6 +115,51 @@
       </aside>
     </div>
   </section>
+
+  <!-- ACCOUNT -->
+  <div id="authModal" class="modal" hidden>
+    <form id="authForm" class="modal-card" autocomplete="on">
+      <button type="button" class="modal-x" data-close aria-label="Close">✕</button>
+      <div class="tabs">
+        <button type="button" class="tab on" data-mode="login">Log in</button>
+        <button type="button" class="tab" data-mode="signup">Make an account</button>
+      </div>
+      <label class="field signup-only" hidden><span>Display name</span>
+        <input id="authName" maxlength="16" autocomplete="nickname" placeholder="What friends see">
+      </label>
+      <label class="field"><span>Email</span>
+        <input id="authEmail" type="email" autocomplete="email" required>
+      </label>
+      <label class="field"><span>Password</span>
+        <input id="authPass" type="password" minlength="6" autocomplete="current-password" required>
+      </label>
+      <button id="authSubmit" class="btn big primary">Log in</button>
+      <p id="authMsg" class="error"></p>
+    </form>
+  </div>
+
+  <!-- AVATAR EDITOR -->
+  <div id="avatarModal" class="modal" hidden>
+    <div class="modal-card avatar-card">
+      <button type="button" class="modal-x" data-close aria-label="Close">✕</button>
+      <h2>Draw your avatar</h2>
+      <p class="muted small">It shows up tiny next to your name and on your cursor, so go bold!</p>
+      <div class="av-stage"><canvas id="avCanvas" width="96" height="96"></canvas></div>
+      <div class="colors" id="avColors"></div>
+      <div class="av-tools">
+        <div class="sizes" id="avSizes"></div>
+        <div class="tool-btns">
+          <button class="tool" data-avtool="pen" title="Pen">✏️</button>
+          <button class="tool" data-avtool="fill" title="Fill bucket">🪣</button>
+          <button class="tool" data-avtool="eraser" title="Eraser">🧽</button>
+          <button class="tool" id="avUndo" title="Undo">↩️</button>
+          <button class="tool" id="avClear" title="Clear">🗑️</button>
+        </div>
+      </div>
+      <button id="avSave" class="btn big primary">💾 Save avatar</button>
+      <p id="avMsg" class="error"></p>
+    </div>
+  </div>
 
   <div id="toast" class="toast"></div>
 

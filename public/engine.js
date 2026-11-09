@@ -63,7 +63,7 @@
       this.queue = Array.isArray(s.queue) ? [...s.queue] : [];
       this.turnId = (s.turnId || 0) + 1;
       for (const p of s.players || []) {
-        this.players.set(p.id, { id: p.id, name: p.name, avatar: p.avatar, score: p.score || 0 });
+        this.players.set(p.id, { id: p.id, name: p.name, avatar: p.avatar, uid: p.uid || null, pv: p.pv || 0, score: p.score || 0 });
         if (p.online) this.online.add(p.id); // assume they're still here; presence corrects it after the grace period
       }
       if (s.phase === 'lobby' || s.phase === 'gameOver') {
@@ -136,6 +136,8 @@
           id: p.id,
           name: p.name,
           avatar: p.avatar,
+          uid: p.uid || null,
+          pv: p.pv || 0,
           score: p.score,
           online: this.online.has(p.id),
           guessed: this.guessed.has(p.id),
@@ -157,9 +159,12 @@
     }
 
     // ---------- events from players ----------
-    hello(id, name) {
+    // uid/pv point at a signed-in player's drawn avatar (account id + profile version).
+    hello(id, name, uid, pv) {
       name = clean(name).slice(0, 16);
       if (!name || !/^[a-zA-Z0-9_-]{8,40}$/.test(id)) return;
+      const acct = typeof uid === 'string' && /^[0-9a-f-]{36}$/i.test(uid) ? uid : null;
+      const ver = acct && Number.isFinite(pv) ? pv : 0;
       let p = this.players.get(id);
       if (!p) {
         if (this.players.size >= MAX_PLAYERS) return this.send('reject', { to: id, error: 'That game is full (16 players).' });
@@ -171,6 +176,8 @@
       } else {
         p.name = name;
       }
+      p.uid = acct;
+      p.pv = ver;
       this.online.add(id);
       this.broadcast();
       this.sendSecret();
@@ -374,7 +381,7 @@
       this.leaderboard = ranked.map((p, i) => {
         if (p.score !== prev) rank = i + 1;
         prev = p.score;
-        return { id: p.id, name: p.name, avatar: p.avatar, score: p.score, rank };
+        return { id: p.id, name: p.name, avatar: p.avatar, uid: p.uid || null, pv: p.pv || 0, score: p.score, rank };
       });
       if (note) this.chat({ kind: 'info', text: note });
       this.chat({ kind: 'good', text: '🏆 Game over! Check the leaderboard.' });
@@ -408,7 +415,7 @@
         return;
       }
 
-      const msg = { kind: 'chat', name: player.name, avatar: player.avatar, text: clean(text).slice(0, 100) };
+      const msg = { kind: 'chat', pid: player.id, name: player.name, avatar: player.avatar, text: clean(text).slice(0, 100) };
       const inTheKnow = this.phase === 'drawing' && (player.id === this.drawerId || this.guessed.has(player.id));
       if (inTheKnow) return this.chat({ ...msg, kind: 'secret' }, [this.drawerId, ...this.guessed]);
 

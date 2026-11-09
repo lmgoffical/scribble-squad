@@ -11,11 +11,14 @@ A multiplayer draw-and-guess party game that runs in the browser, with nothing t
 - **Spoiler-proof chat:** once you guess right, your messages only go to others who already got it
 - **Drawing tools:** 20 colors, 4 brush sizes, fill bucket, eraser, undo (Ctrl+Z) and clear
 - **End-of-game leaderboard:** podium for the top 3 plus everyone else's rank, with confetti 🎉
+- **Live cursors:** see everyone's mouse moving over the board, with their avatar
+- **Accounts (optional):** sign up with email and draw your own little avatar; guests get an emoji
 - Works on phones, and refreshing the page drops you back into your game
 
 ## How it works
 - It's a **static site** (`public/`), hosted on **Cloudflare Pages**.
-- Multiplayer runs on **Supabase Realtime** channels (broadcast + presence). No database tables are used.
+- Multiplayer runs on **Supabase Realtime** channels (broadcast + presence).
+- Accounts use **Supabase Auth**. Drawn avatars live in the `player_profiles` table (everyone can read them, and only you can change yours).
 - The **host's browser runs the game** (`public/engine.js`): word picking, timers, scoring. If the host leaves, the next player takes over automatically.
 
 Because players' browsers send messages straight to each other, a determined player could peek at the word using dev tools. It's built for playing with friends, not for prize money 😄

@@ -29,7 +29,7 @@
     realtime: { params: { eventsPerSecond: 30 } },
   });
 
-  const EVENTS = ['hello', 'act', 'state', 'secret', 'chat', 'sync', 'draw', 'reject'];
+  const EVENTS = ['hello', 'act', 'state', 'secret', 'chat', 'sync', 'draw', 'reject', 'cur'];
   let channel = null;
   let engine = null; // only set on the host's browser
   let state = null;
@@ -43,6 +43,56 @@
   let takeoverTimer = null;
   let localOps = [];
   let lastTurnId = null;
+  let account = { user: null, profile: null, pv: 0 }; // signed-in account, if any
+
+  // ---------- drawn avatars ----------
+  // Players with an account have a drawn avatar stored in Supabase; everyone else gets an emoji.
+  const pics = new Map(); // account id -> { pv, url }
+  const picQueue = new Map();
+  let picTimer = null;
+  let picsVersion = 0;
+
+  function picUrl(p) {
+    if (!p?.uid) return null;
+    const c = pics.get(p.uid);
+    if (!c || c.pv !== p.pv) {
+      picQueue.set(p.uid, p.pv);
+      clearTimeout(picTimer);
+      picTimer = setTimeout(loadPics, 60);
+    }
+    return c?.url || null;
+  }
+
+  async function loadPics() {
+    const want = new Map(picQueue);
+    picQueue.clear();
+    for (const [uid, pv] of want) pics.set(uid, { pv, url: pics.get(uid)?.url || null });
+    const { data, error } = await sb.from('player_profiles').select('id, avatar').in('id', [...want.keys()]);
+    if (error) return;
+    for (const row of data || []) pics.set(row.id, { pv: want.get(row.id), url: row.avatar || null });
+    picsVersion += 1;
+    rerender();
+  }
+
+  function avatarNode(p, cls = 'av') {
+    const wrapEl = el('span', cls);
+    const url = picUrl(p);
+    if (url) {
+      const img = el('img', 'pic');
+      img.src = url;
+      img.alt = '';
+      wrapEl.append(img);
+    } else {
+      wrapEl.textContent = p?.avatar || '🙂';
+    }
+    return wrapEl;
+  }
+
+  function rerender() {
+    if (!state) return;
+    if (state.phase === 'lobby') renderLobby();
+    else renderGame(state);
+  }
 
   // ---------- networking ----------
   function send(event, payload = {}) {
@@ -50,6 +100,7 @@
     channel.send({ type: 'broadcast', event, payload: { ...payload, from: playerId } });
   }
   const act = (type, data) => send('act', { type, data });
+  const helloPayload = () => ({ name: myName, uid: account.user?.id || null, pv: account.pv || 0 });
 
   function openChannel(code) {
     return new Promise((resolve) => {
@@ -63,7 +114,7 @@
         if (status === 'SUBSCRIBED') {
           await ch.track({ name: myName });
           if (!settled) { settled = true; resolve(ch); }
-          else if (!engine) send('hello', { name: myName }); // reconnected after a network blip
+          else if (!engine) send('hello', helloPayload()); // reconnected after a network blip
         } else if ((status === 'CHANNEL_ERROR' || status === 'TIMED_OUT') && !settled) {
           settled = true;
           resolve(null);
@@ -89,7 +140,8 @@
     engine = new window.HostEngine({ code: currentCode, hostId: playerId, send });
     engine.online = new Set([playerId, ...Object.keys(channel.presenceState())]);
     if (prior) engine.adopt(prior);
-    engine.hello(playerId, myName);
+    const h = helloPayload();
+    engine.hello(playerId, h.name, h.uid, h.pv);
     onPresence();
   }
 
@@ -132,7 +184,7 @@
 
     const result = await new Promise((resolve) => {
       joinWaiter = resolve;
-      send('hello', { name });
+      send('hello', helloPayload());
       setTimeout(() => resolve({ error: `No game found with code ${code}.` }), 6000);
     });
     joinWaiter = null;
@@ -154,7 +206,7 @@
     const from = p.from;
     switch (event) {
       case 'hello':
-        if (engine) engine.hello(from, p.name);
+        if (engine) engine.hello(from, p.name, p.uid, p.pv);
         break;
       case 'act':
         if (engine) engine.act(from, p.type, p.data);
@@ -200,6 +252,9 @@
         break;
       case 'reject':
         if (p.to === playerId && joinWaiter) joinWaiter({ error: p.error });
+        break;
+      case 'cur':
+        if (from !== playerId) moveCursor(from, p.x, p.y);
         break;
     }
   }
@@ -378,7 +433,7 @@
     $('lobbyPlayers').replaceChildren(
       ...state.players.map((p) => {
         const li = el('li');
-        li.append(el('span', 'av', p.avatar), el('span', null, p.name));
+        li.append(avatarNode(p), el('span', null, p.name));
         if (p.id === state.hostId) li.append(el('span', 'badge', 'host'));
         if (p.id === playerId) li.append(el('span', 'badge you', 'you'));
         return li;
@@ -426,7 +481,7 @@
         if (p.guessed) li.classList.add('guessed');
         if (p.id === state.drawerId && state.phase !== 'gameOver') li.classList.add('drawing');
         if (!p.online) li.classList.add('offline');
-        li.append(el('span', 'rk', `#${i + 1}`), el('span', 'av', p.avatar));
+        li.append(el('span', 'rk', `#${i + 1}`), avatarNode(p));
         const info = el('div', 'info');
         info.append(el('span', 'nm', p.name + (p.id === playerId ? ' (you)' : '')), el('span', 'sc', `${p.score} pts`));
         li.append(info);
@@ -455,8 +510,10 @@
   function renderOverlay() {
     const o = $('overlay');
     const choices = myChoices();
-    const key = `${state.phase}|${state.turnId}|${state.hostId}|${choices ? 1 : 0}|${state.phase === 'turnEnd' ? JSON.stringify(state.turnPoints) : ''}`;
+    const base = `${state.phase}|${state.turnId}|${state.hostId}|${choices ? 1 : 0}|${state.phase === 'turnEnd' ? JSON.stringify(state.turnPoints) : ''}`;
+    const key = `${base}|${picsVersion}`;
     if (key === lastPhaseKey) return;
+    const fresh = !lastPhaseKey.startsWith(base + '|'); // first time showing this screen (not just avatars loading)
     lastPhaseKey = key;
     o.replaceChildren();
     o.classList.remove('show');
@@ -465,7 +522,7 @@
     if (state.phase === 'choosing') {
       o.classList.add('show');
       if (choices) {
-        sfx.turn();
+        if (fresh) sfx.turn();
         o.append(el('h2', null, 'Your turn! Pick a word'));
         const c = el('div', 'choices');
         choices.forEach((word, i) => {
@@ -475,7 +532,7 @@
         });
         o.append(c);
       } else {
-        o.append(el('div', 'big-word', drawer?.avatar || '🎨'), el('h2', null, `${drawer?.name || 'Someone'} is choosing a word…`));
+        o.append(avatarNode(drawer, 'big-word'), el('h2', null, `${drawer?.name || 'Someone'} is choosing a word…`));
       }
     } else if (state.phase === 'turnEnd') {
       o.classList.add('show');
@@ -487,20 +544,24 @@
       for (const p of sorted) {
         const pts = tp[p.id] || 0;
         const li = el('li');
-        li.append(el('span', null, `${p.avatar} ${p.name}`), el('span', pts ? 'plus' : 'zero', pts ? `+${pts}` : '0'));
+        const who = el('span');
+        who.append(avatarNode(p, 'mini'), document.createTextNode(` ${p.name}`));
+        li.append(who, el('span', pts ? 'plus' : 'zero', pts ? `+${pts}` : '0'));
         list.append(li);
       }
       o.append(list);
     } else if (state.phase === 'gameOver') {
       o.classList.add('show');
-      renderLeaderboard(o);
+      renderLeaderboard(o, fresh);
     }
   }
 
-  function renderLeaderboard(o) {
+  function renderLeaderboard(o, fresh) {
     const lb = state.leaderboard || [];
-    sfx.fanfare();
-    confetti(120);
+    if (fresh) {
+      sfx.fanfare();
+      confetti(120);
+    }
     const winner = lb[0];
     const tied = lb.filter((p) => p.rank === 1).length > 1;
     let title = 'Game over';
@@ -514,7 +575,9 @@
       const place = [2, 1, 3][i];
       const step = el('div', `step p${place}`);
       if (p.id === playerId) step.classList.add('me');
-      step.append(el('div', 'av', p.avatar), el('div', 'nm', p.name), el('div', 'pts', `${p.score} pts`), el('div', 'block', `${p.rank}`));
+      const av = el('div', 'av');
+      av.append(avatarNode(p, 'face'));
+      step.append(av, el('div', 'nm', p.name), el('div', 'pts', `${p.score} pts`), el('div', 'block', `${p.rank}`));
       podium.append(step);
     });
     o.append(podium);
@@ -523,7 +586,9 @@
       lb.slice(3).forEach((p) => {
         const li = el('li');
         if (p.id === playerId) li.classList.add('me');
-        li.append(el('span', null, `#${p.rank}`), el('span', null, `${p.avatar} ${p.name}`), el('span', 's', `${p.score}`));
+        const who = el('span');
+        who.append(avatarNode(p, 'mini'), document.createTextNode(` ${p.name}`));
+        li.append(el('span', null, `#${p.rank}`), who, el('span', 's', `${p.score}`));
         rest.append(li);
       });
       o.append(rest);
@@ -573,7 +638,10 @@
     const kind = ['chat', 'secret', 'info', 'good', 'close', 'round'].includes(m.kind) ? m.kind : 'info';
     const div = el('div', `m k-${kind}`);
     if (kind === 'chat' || kind === 'secret') {
-      div.append(el('b', null, `${m.avatar || ''} ${m.name || ''}:`), document.createTextNode(String(m.text || '')));
+      const who = el('b');
+      const p = state?.players.find((q) => q.id === m.pid) || { avatar: m.avatar };
+      who.append(avatarNode(p, 'mini'), document.createTextNode(` ${m.name || ''}: `));
+      div.append(who, document.createTextNode(String(m.text || '')));
     } else {
       div.textContent = String(m.text || '');
     }
@@ -595,6 +663,7 @@
   const ctx = canvas.getContext('2d', { willReadFrequently: true });
   const W = canvas.width;
   const H = canvas.height;
+  const MAIN_TARGET = [ctx, W, H];
   const COLORS = ['#000000', '#7f7f7f', '#ffffff', '#ef4565', '#ff8a3d', '#ffd23f', '#1fb86a', '#1e90ff', '#5b3df5', '#ff5fa8',
                   '#5c3a21', '#c3c3c3', '#ffd7b5', '#9c1d34', '#c75a00', '#a6862b', '#0e6b3c', '#0b4f8a', '#30207e', '#a8327a'];
   const SIZES = [0.005, 0.012, 0.025, 0.05];
@@ -625,7 +694,9 @@
     ctx.stroke();
   }
 
-  function floodFill(op) {
+  // target = [context, width, height]; defaults to the main board
+  function floodFill(op, target) {
+    const [ctx, W, H] = target || MAIN_TARGET;
     if (!isColor(op.c) || !(op.x >= 0 && op.x <= 1 && op.y >= 0 && op.y <= 1)) return;
     const x = Math.min(W - 1, Math.floor(op.x * W));
     const y = Math.min(H - 1, Math.floor(op.y * H));
@@ -804,6 +875,300 @@
   };
   canvas.addEventListener('pointerup', stop);
   canvas.addEventListener('pointercancel', stop);
+
+  // ---------- live cursors ----------
+  // Mouse users share where their pointer is over the board; everyone sees it with their avatar.
+  // Updates are throttled (~7 per second) and smoothed with CSS, to stay inside Supabase's free limits.
+  const cursors = new Map(); // playerId -> { el, timer }
+  const wrap = $('canvasWrap');
+
+  const cursorFace = (p) => avatarNode(p, 'cur-av');
+
+  function moveCursor(id, x, y) {
+    if (!state) return;
+    let c = cursors.get(id);
+    if (typeof x !== 'number' || typeof y !== 'number' || x < 0 || x > 1 || y < 0 || y > 1) {
+      if (c) c.el.classList.remove('show');
+      return;
+    }
+    const p = state.players.find((q) => q.id === id);
+    if (!p) return;
+    if (!c) {
+      const e = el('div', 'cursor');
+      c = { el: e, timer: null, key: '' };
+      cursors.set(id, c);
+      wrap.append(e);
+    }
+    const key = `${p.name}|${p.avatar}|${picUrl(p) ? p.uid + p.pv : ''}`;
+    if (c.key !== key) {
+      c.key = key;
+      c.el.replaceChildren(el('span', 'cur-arrow'), cursorFace(p), el('span', 'cur-name', p.name));
+    }
+    c.el.style.transform = `translate(${x * wrap.clientWidth}px, ${y * wrap.clientHeight}px)`;
+    c.el.classList.add('show');
+    clearTimeout(c.timer);
+    c.timer = setTimeout(() => c.el.classList.remove('show'), 4000);
+  }
+
+  let curPending = null;
+  let curSent = null;
+  wrap.addEventListener('pointermove', (e) => {
+    if (e.pointerType !== 'mouse' || !channel || !state || state.phase === 'lobby') return;
+    const r = wrap.getBoundingClientRect();
+    curPending = { x: +((e.clientX - r.left) / r.width).toFixed(3), y: +((e.clientY - r.top) / r.height).toFixed(3) };
+  });
+  wrap.addEventListener('pointerleave', (e) => {
+    if (e.pointerType === 'mouse') curPending = { x: -1, y: -1 };
+  });
+  setInterval(() => {
+    if (!curPending || (curSent && curPending.x === curSent.x && curPending.y === curSent.y)) return;
+    send('cur', curPending);
+    curSent = curPending;
+  }, 150);
+
+  // ---------- accounts ----------
+  const authModal = $('authModal');
+  const avatarModal = $('avatarModal');
+  let authMode = 'login';
+
+  function openModal(m) { m.hidden = false; }
+  function closeModal(m) { m.hidden = true; }
+  document.querySelectorAll('.modal').forEach((m) => {
+    m.addEventListener('click', (e) => { if (e.target === m || e.target.closest('[data-close]')) closeModal(m); });
+  });
+  document.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape') document.querySelectorAll('.modal').forEach(closeModal);
+  });
+
+  function setAuthMode(mode) {
+    authMode = mode;
+    document.querySelectorAll('#authForm .tab').forEach((t) => t.classList.toggle('on', t.dataset.mode === mode));
+    document.querySelector('#authForm .signup-only').hidden = mode !== 'signup';
+    $('authSubmit').textContent = mode === 'signup' ? '✨ Make my account' : 'Log in';
+    $('authPass').autocomplete = mode === 'signup' ? 'new-password' : 'current-password';
+    $('authMsg').textContent = '';
+    $('authMsg').classList.remove('ok');
+  }
+  document.querySelectorAll('#authForm .tab').forEach((t) => (t.onclick = () => setAuthMode(t.dataset.mode)));
+  $('openAuth').onclick = () => {
+    setAuthMode('login');
+    openModal(authModal);
+    $('authEmail').focus();
+  };
+
+  function authMessage(text, ok = false) {
+    $('authMsg').textContent = text;
+    $('authMsg').classList.toggle('ok', ok);
+  }
+
+  $('authForm').onsubmit = async (e) => {
+    e.preventDefault();
+    const email = $('authEmail').value.trim();
+    const password = $('authPass').value;
+    const btn = $('authSubmit');
+    btn.disabled = true;
+    try {
+      if (authMode === 'signup') {
+        const name = $('authName').value.trim().slice(0, 16) || email.split('@')[0].slice(0, 16);
+        const { data, error } = await sb.auth.signUp({
+          email,
+          password,
+          options: { data: { display_name: name }, emailRedirectTo: location.origin + location.pathname },
+        });
+        if (error) return authMessage(error.message);
+        if (!data.session) return authMessage('Almost done! Check your email to confirm your account, then log in.', true);
+        await ensureProfile(data.user, name);
+      } else {
+        const { data, error } = await sb.auth.signInWithPassword({ email, password });
+        if (error) return authMessage(error.message === 'Invalid login credentials' ? 'Wrong email or password.' : error.message);
+        await ensureProfile(data.user);
+      }
+      closeModal(authModal);
+      $('authPass').value = '';
+      toast('Signed in! Tap 🎨 Avatar to draw yours.');
+    } finally {
+      btn.disabled = false;
+    }
+  };
+
+  async function ensureProfile(user, name) {
+    if (!user) return;
+    const { data } = await sb.from('player_profiles').select('id, display_name, avatar, updated_at').eq('id', user.id).maybeSingle();
+    if (data) return setAccount(user, data);
+    const display = (name || user.user_metadata?.display_name || user.email?.split('@')[0] || 'Player').slice(0, 16);
+    const { data: created, error } = await sb.from('player_profiles').insert({ id: user.id, display_name: display }).select().single();
+    setAccount(user, error ? null : created);
+  }
+
+  function setAccount(user, profile) {
+    account = { user, profile, pv: profile ? Date.parse(profile.updated_at) || 0 : 0 };
+    if (user && profile) pics.set(user.id, { pv: account.pv, url: profile.avatar || null });
+    renderAccount();
+    if (user && profile && !nameInput.value.trim()) nameInput.value = profile.display_name;
+    if (channel && state) send('hello', helloPayload()); // update my avatar in the current game
+  }
+
+  function renderAccount() {
+    const signedIn = !!account.user;
+    $('acctOut').hidden = signedIn;
+    $('acctIn').hidden = !signedIn;
+    if (!signedIn) return;
+    $('acctName').textContent = account.profile?.display_name || account.user.email;
+    const pic = $('acctPic');
+    pic.replaceChildren();
+    if (account.profile?.avatar) {
+      const img = el('img');
+      img.src = account.profile.avatar;
+      img.alt = 'Your avatar';
+      pic.append(img);
+    } else {
+      pic.textContent = '🙂';
+    }
+  }
+
+  $('signOut').onclick = async () => {
+    await sb.auth.signOut();
+    setAccount(null, null);
+    toast('Signed out');
+  };
+
+  sb.auth.onAuthStateChange((event, session) => {
+    if (event === 'SIGNED_OUT') return setAccount(null, null);
+    if (session?.user && session.user.id !== account.user?.id) ensureProfile(session.user);
+  });
+  sb.auth.getSession().then(({ data }) => { if (data.session?.user) ensureProfile(data.session.user); });
+
+  // ---------- avatar editor (small 96×96 drawing, shown tiny in game) ----------
+  const av = $('avCanvas');
+  const avCtx = av.getContext('2d', { willReadFrequently: true });
+  const AV = av.width;
+  const AV_SIZES = [2, 5, 10];
+  let avColor = '#000000';
+  let avSize = AV_SIZES[1];
+  let avTool = 'pen';
+  let avHistory = [];
+  let avLast = null;
+
+  function avReset(src) {
+    avCtx.fillStyle = '#ffffff';
+    avCtx.fillRect(0, 0, AV, AV);
+    avHistory = [];
+    if (src) {
+      const img = new Image();
+      img.onload = () => avCtx.drawImage(img, 0, 0, AV, AV);
+      img.src = src;
+    }
+  }
+
+  avReset();
+  $('editAvatar').onclick = () => {
+    avReset(account.profile?.avatar);
+    $('avMsg').textContent = '';
+    openModal(avatarModal);
+  };
+
+  $('avColors').append(
+    ...COLORS.map((c) => {
+      const b = el('button', 'swatch');
+      b.style.background = c;
+      b.dataset.c = c;
+      b.onclick = () => { avColor = c; if (avTool === 'eraser') avTool = 'pen'; avRefresh(); };
+      return b;
+    })
+  );
+  $('avSizes').append(
+    ...AV_SIZES.map((s, i) => {
+      const b = el('button', 'size');
+      const dot = el('i');
+      dot.style.width = dot.style.height = `${6 + i * 6}px`;
+      b.append(dot);
+      b.dataset.s = s;
+      b.onclick = () => { avSize = s; avRefresh(); };
+      return b;
+    })
+  );
+  document.querySelectorAll('[data-avtool]').forEach((b) => (b.onclick = () => { avTool = b.dataset.avtool; avRefresh(); }));
+  function avRefresh() {
+    $('avColors').querySelectorAll('.swatch').forEach((b) => b.classList.toggle('on', b.dataset.c === avColor && avTool !== 'eraser'));
+    $('avSizes').querySelectorAll('.size').forEach((b) => b.classList.toggle('on', +b.dataset.s === avSize));
+    document.querySelectorAll('[data-avtool]').forEach((b) => b.classList.toggle('on', b.dataset.avtool === avTool));
+  }
+  avRefresh();
+
+  const avSnap = () => {
+    avHistory.push(avCtx.getImageData(0, 0, AV, AV));
+    if (avHistory.length > 30) avHistory.shift();
+  };
+  $('avUndo').onclick = () => { if (avHistory.length) avCtx.putImageData(avHistory.pop(), 0, 0); };
+  $('avClear').onclick = () => { avSnap(); avCtx.fillStyle = '#fff'; avCtx.fillRect(0, 0, AV, AV); };
+
+  const avPos = (e) => {
+    const r = av.getBoundingClientRect();
+    return { x: ((e.clientX - r.left) / r.width) * AV, y: ((e.clientY - r.top) / r.height) * AV };
+  };
+  function avLine(a, b) {
+    avCtx.strokeStyle = avTool === 'eraser' ? '#ffffff' : avColor;
+    avCtx.lineWidth = avTool === 'eraser' ? Math.max(avSize, 6) : avSize;
+    avCtx.lineCap = 'round';
+    avCtx.lineJoin = 'round';
+    avCtx.beginPath();
+    avCtx.moveTo(a.x, a.y);
+    avCtx.lineTo(b.x + (a.x === b.x && a.y === b.y ? 0.01 : 0), b.y);
+    avCtx.stroke();
+  }
+  av.addEventListener('pointerdown', (e) => {
+    e.preventDefault();
+    avSnap();
+    const p = avPos(e);
+    if (avTool === 'fill') {
+      floodFill({ x: p.x / AV, y: p.y / AV, c: avColor }, [avCtx, AV, AV]);
+      return;
+    }
+    av.setPointerCapture(e.pointerId);
+    avLast = p;
+    avLine(p, p);
+  });
+  av.addEventListener('pointermove', (e) => {
+    if (!avLast) return;
+    const p = avPos(e);
+    avLine(avLast, p);
+    avLast = p;
+  });
+  const avStop = () => { avLast = null; };
+  av.addEventListener('pointerup', avStop);
+  av.addEventListener('pointercancel', avStop);
+
+  $('avSave').onclick = async () => {
+    if (!account.user) return;
+    const btn = $('avSave');
+    btn.disabled = true;
+    $('avMsg').textContent = '';
+    try {
+      let url = av.toDataURL('image/png');
+      if (url.length > 30000) {
+        // Very detailed drawing: shrink it so it stays small.
+        const small = document.createElement('canvas');
+        small.width = small.height = 64;
+        small.getContext('2d').drawImage(av, 0, 0, 64, 64);
+        url = small.toDataURL('image/png');
+      }
+      const display = account.profile?.display_name || nameInput.value.trim() || 'Player';
+      const { data, error } = await sb
+        .from('player_profiles')
+        .upsert({ id: account.user.id, display_name: display.slice(0, 16), avatar: url })
+        .select()
+        .single();
+      if (error) {
+        $('avMsg').textContent = "Couldn't save, try again.";
+        return;
+      }
+      setAccount(account.user, data);
+      closeModal(avatarModal);
+      toast('Avatar saved! 🎨');
+    } finally {
+      btn.disabled = false;
+    }
+  };
 
   // ---------- extras: toast, sounds, confetti ----------
   let toastTimer;
