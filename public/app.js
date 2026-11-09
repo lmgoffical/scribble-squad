@@ -178,6 +178,10 @@
         break;
       case 'chat':
         if (from !== state?.hostId && !(engine && from === playerId)) return;
+        if (typeof p.turnId === 'number') {
+          if (p.turnId < chatTurn) return; // left over from an earlier turn
+          resetChatFor(p.turnId);
+        }
         for (const m of Array.isArray(p.items) ? p.items : []) {
           if (!Array.isArray(m.to) || m.to.includes(playerId)) addChat(m);
         }
@@ -314,6 +318,8 @@
     store.del('ss-state', session);
     history.replaceState(null, '', location.pathname);
     $('chat').replaceChildren();
+    chatTurn = -1;
+    lastTurnId = null;
     show('home');
   }
 
@@ -349,7 +355,9 @@
       redraw();
     }
     if (secret && secret.turnId !== s.turnId) secret = null;
+    resetChatFor(s.turnId);
     if (s.phase === 'lobby') {
+      chat.replaceChildren(); // nothing carries over after a game
       show('lobby');
       renderLobby();
     } else {
@@ -552,7 +560,15 @@
   }, 200);
 
   // ---------- chat ----------
+  // Chat only lives for one turn: it's wiped when the next turn (or a new game) starts.
   const chat = $('chat');
+  let chatTurn = -1;
+  function resetChatFor(turnId) {
+    if (turnId > chatTurn) {
+      chatTurn = turnId;
+      chat.replaceChildren();
+    }
+  }
   function addChat(m) {
     const kind = ['chat', 'secret', 'info', 'good', 'close', 'round'].includes(m.kind) ? m.kind : 'info';
     const div = el('div', `m k-${kind}`);

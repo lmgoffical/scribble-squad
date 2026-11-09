@@ -107,7 +107,7 @@
         this.chatQueued = false;
         const items = this.pendingChat;
         this.pendingChat = [];
-        this.send('chat', { items });
+        this.send('chat', { items, turnId: this.turnId });
       });
     }
     hint() {
