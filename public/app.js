@@ -384,8 +384,8 @@
       toast('Press Ctrl+C to copy');
     }
   };
-  $('roundsSel').onchange = $('timeSel').onchange = () =>
-    act('settings', { rounds: +$('roundsSel').value, drawTime: +$('timeSel').value });
+  $('roundsSel').onchange = $('timeSel').onchange = $('diffSel').onchange = () =>
+    act('settings', { rounds: +$('roundsSel').value, drawTime: +$('timeSel').value, difficulty: $('diffSel').value });
   $('startBtn').onclick = () => act('start');
   $('leaveBtn').onclick = () => leaveRoom();
 
@@ -501,12 +501,15 @@
     $('playerCount').textContent = state.players.length;
     $('roundsSel').value = state.settings.rounds;
     $('timeSel').value = state.settings.drawTime;
+    const diff = state.settings.difficulty || 'normal';
+    $('diffSel').value = diff;
     const host = isHost();
     $('hostSettings').style.display = host ? '' : 'none';
     $('startBtn').style.display = host ? '' : 'none';
     $('waitHost').style.display = host ? 'none' : '';
     const r = state.settings.rounds;
-    $('settingsInfo').textContent = `${r} round${r === 1 ? '' : 's'} · ${state.settings.drawTime}s to draw`;
+    const diffName = $('diffSel').selectedOptions[0]?.textContent || diff;
+    $('settingsInfo').textContent = `${diffName} words · ${r} round${r === 1 ? '' : 's'} · ${state.settings.drawTime}s to draw`;
     const enough = state.players.filter((p) => p.online).length >= 2;
     $('startBtn').disabled = !enough;
     $('startBtn').textContent = enough ? '🚀 Start game' : 'Need 2+ players…';

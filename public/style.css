@@ -97,7 +97,8 @@ input:focus, select:focus { border-color: var(--bg1); }
 .lobby-players .av { font-size: 1.5rem; }
 .badge { margin-left: auto; font-size: .75rem; background: var(--primary); color: var(--primary-ink); border-radius: 99px; padding: 0 8px; }
 .badge.you { background: var(--bg1); color: #fff; }
-.settings { display: flex; gap: 10px; }
+.settings { display: flex; flex-wrap: wrap; gap: 10px; }
+.settings label { min-width: 90px; }
 .settings label { flex: 1; font-weight: 700; font-size: .9rem; }
 
 /* ---------- game ---------- */

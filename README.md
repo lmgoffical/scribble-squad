@@ -6,6 +6,7 @@ A multiplayer draw-and-guess party game that runs in the browser, with nothing t
 - **Join codes:** 4-letter room codes like `UVMK`
 - **QR codes:** scan to join from a phone
 - **Share links:** `…/?room=UVMK` fills in the code for you, so you can paste it in Discord
+- **Difficulty:** Easy, Normal, Medium or Hard, each with its own word list (100+ words each)
 - **Points:** up to ~500 for a fast guess and a bonus for guessing early; the drawer earns points for every correct guess
 - **Hints:** letters reveal over time, and you get a "so close!" message when you're one letter off
 - **Spoiler-proof chat:** once you guess right, your messages only go to others who already got it
@@ -37,6 +38,6 @@ Cloudflare Pages settings:
 - Build output directory: `public`
 
 ## Customize
-- **Words:** edit `public/words.js` and add your own inside jokes
+- **Words:** edit `public/words.js` (one list per difficulty) and add your own inside jokes
 - **Supabase project:** `public/config.js` (the publishable key is safe to be public)
 - **Max players:** 16 (in `public/engine.js`)

@@ -22,8 +22,10 @@
     return dp[a.length][b.length];
   }
 
-  function pickWords(n) {
-    const pool = [...new Set(window.WORDS)];
+  const DIFFICULTIES = ['easy', 'normal', 'medium', 'hard'];
+  function pickWords(n, difficulty) {
+    const bank = window.WORDS[difficulty] || window.WORDS.normal;
+    const pool = [...new Set(bank)];
     const out = [];
     while (out.length < n && pool.length) out.push(pool.splice(Math.floor(Math.random() * pool.length), 1)[0]);
     return out;
@@ -37,7 +39,7 @@
       this.send = send;
       this.online = new Set([hostId]);
       this.players = new Map();
-      this.settings = { rounds: 3, drawTime: 80 };
+      this.settings = { rounds: 3, drawTime: 80, difficulty: 'normal' };
       this.phase = 'lobby';
       this.round = 0;
       this.queue = [];
@@ -59,7 +61,7 @@
 
     // ---------- taking over from a host who left ----------
     adopt(s) {
-      this.settings = { ...s.settings };
+      this.settings = { difficulty: 'normal', ...s.settings };
       this.round = s.round || 0;
       this.queue = Array.isArray(s.queue) ? [...s.queue] : [];
       this.turnId = (s.turnId || 0) + 1;
@@ -246,6 +248,7 @@
           const drawTime = Number(data?.drawTime);
           if ([1, 2, 3, 4, 5, 6, 8, 10].includes(rounds)) this.settings.rounds = rounds;
           if ([30, 45, 60, 80, 100, 120, 150].includes(drawTime)) this.settings.drawTime = drawTime;
+          if (DIFFICULTIES.includes(data?.difficulty)) this.settings.difficulty = data.difficulty;
           return this.broadcast();
         }
         case 'start':
@@ -343,7 +346,7 @@
       if (this.connected().length < 2) return this.endGame('Not enough players left.');
 
       this.drawerId = this.queue.shift();
-      this.choices = pickWords(3);
+      this.choices = pickWords(3, this.settings.difficulty);
       this.phase = 'choosing';
       this.endsAt = Date.now() + CHOOSE_TIME * 1000;
       const turn = this.turnId;
