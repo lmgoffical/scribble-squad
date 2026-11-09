@@ -512,6 +512,49 @@
     $('startBtn').textContent = enough ? '🚀 Start game' : 'Need 2+ players…';
   }
 
+  // When a word is picked, its blanks pop up big over the board, then fly up into the top bar.
+  let flyTurn = null;
+  let flyAnim = null;
+  let flyEl = null;
+  function flyWord(w) {
+    if (matchMedia('(prefers-reduced-motion: reduce)').matches) return;
+    flyAnim?.cancel(); // only set while a flight is in progress
+    document.querySelectorAll('.word-fly').forEach((n) => n.remove());
+    const fly = w.cloneNode(true);
+    fly.removeAttribute('id');
+    fly.className = 'word word-fly';
+    document.body.append(fly);
+    flyEl = fly;
+    const t = w.getBoundingClientRect();
+    const b = $('canvasWrap').getBoundingClientRect();
+    const f = fly.getBoundingClientRect();
+    fly.style.left = `${t.left + t.width / 2 - f.width / 2}px`;
+    fly.style.top = `${t.top + t.height / 2 - f.height / 2}px`;
+    const dx = b.left + b.width / 2 - (t.left + t.width / 2);
+    const dy = b.top + b.height / 2 - (t.top + t.height / 2);
+    const big = Math.min(2, (b.width * 0.85) / f.width);
+    const mid = `translate(${dx}px, ${dy}px) scale(${big})`;
+    w.style.visibility = 'hidden';
+    const anim = fly.animate(
+      [
+        { transform: `translate(${dx}px, ${dy}px) scale(${big * 0.6})`, opacity: 0, easing: 'cubic-bezier(.2,1.6,.4,1)' },
+        { transform: mid, opacity: 1, offset: 0.18 },
+        { transform: mid, opacity: 1, offset: 0.6, easing: 'cubic-bezier(.6,0,.2,1)' },
+        { transform: 'none', opacity: 1, boxShadow: 'none', background: 'transparent' },
+      ],
+      { duration: 2000, fill: 'forwards' }
+    );
+    flyAnim = anim;
+    const done = () => {
+      fly.remove();
+      if (flyAnim !== anim) return; // a newer flight has taken over the label
+      flyAnim = null;
+      w.style.visibility = '';
+    };
+    anim.onfinish = done;
+    anim.oncancel = done;
+  }
+
   function renderGame(prev) {
     if (state.phase === 'lobby') return;
     const rounds = state.settings.rounds;
@@ -531,6 +574,16 @@
       }
     } else if (state.phase === 'choosing') {
       w.append(el('small', null, 'picking a word…'));
+    }
+    if (state.phase === 'drawing' && flyTurn !== state.turnId) {
+      flyTurn = state.turnId;
+      // Only when we saw the word get picked, not when rejoining halfway through a turn.
+      if (prev && (prev.phase === 'choosing' || prev.turnId !== state.turnId)) flyWord(w);
+    } else if (flyEl?.isConnected) {
+      // The drawer's word can arrive a moment after the blanks; keep the flying copy in step.
+      flyEl.replaceChildren(...[...w.childNodes].map((n) => n.cloneNode(true)));
+      const t = w.getBoundingClientRect();
+      flyEl.style.left = `${t.left + t.width / 2 - flyEl.offsetWidth / 2}px`;
     }
 
     const ranked = [...state.players].sort((a, b) => b.score - a.score);

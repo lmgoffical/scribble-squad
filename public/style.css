@@ -109,6 +109,7 @@ input:focus, select:focus { border-color: var(--bg1); }
 .round { font-weight: 700; color: var(--muted); }
 .word { font-size: 1.6rem; font-weight: 800; letter-spacing: .3em; text-align: center; white-space: pre; }
 .word small { display: block; font-size: .75rem; letter-spacing: 0; color: var(--muted); font-weight: 500; }
+.word-fly { position: fixed; z-index: 50; margin: 0; padding: 6px 16px 4px; border-radius: 16px; background: var(--card); box-shadow: var(--shadow); pointer-events: none; transform-origin: center; }
 .timer { justify-self: end; width: 54px; height: 54px; border-radius: 50%; display: grid; place-items: center; font-weight: 800; font-size: 1.3rem; background: conic-gradient(var(--bg1) var(--p, 100%), var(--soft) 0); }
 .timer span { background: #fff; width: 42px; height: 42px; border-radius: 50%; display: grid; place-items: center; }
 .timer.hurry { animation: shake .4s infinite; background: conic-gradient(var(--bad) var(--p, 100%), var(--soft) 0); }
